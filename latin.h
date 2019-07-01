@@ -13,12 +13,20 @@ extern int solver_show_working, solver_recurse_depth;
 
 struct latin_solver {
   int o;                /* order of latin square */
+#ifdef SEMI_LATIN
+  int depth;			/* depth of latin square */
+#endif
   unsigned char *cube;  /* o^3, indexed by x, y, and digit:
                            true in that position indicates a possibility */
   digit *grid;          /* o^2, indexed by x and y: for final deductions */
 
   unsigned char *row;   /* o^2: row[y*cr+n-1] true if n is in row y */
   unsigned char *col;   /* o^2: col[x*cr+n-1] true if n is in col x */
+
+#ifdef SEMI_LATIN
+  bool *force;			/* o^2: force[y*cr+x] true if cell must contain a value */
+  bool *forbid;			/* o^2: forbid[y*cr+x] true if cell must be blank */
+#endif
 
 #ifdef STANDALONE_SOLVER
   char **names;         /* o: names[n-1] gives name of 'digit' n */
@@ -32,6 +40,11 @@ struct latin_solver {
 
 
 /* --- Solver individual strategies --- */
+
+#ifdef SEMI_LATIN
+/* Figure out which cells must have or _not_ have a value */
+int latin_solver_distribute_force_forbid(struct latin_solver *solver);
+#endif
 
 /* Place a value at a specific location. */
 void latin_solver_place(struct latin_solver *solver, int x, int y, int n);
@@ -64,7 +77,11 @@ int latin_solver_forcing(struct latin_solver *solver,
  * Will allocate members of snew, but not snew itself
  * (allowing 'struct latin_solver' to be the first element in a larger
  * struct, for example). */
-void latin_solver_alloc(struct latin_solver *solver, digit *grid, int o);
+void latin_solver_alloc(struct latin_solver *solver, digit *grid, int o
+#ifdef SEMI_LATIN
+						, int depth, bool *force, bool *forbid
+#endif
+						);
 void latin_solver_free(struct latin_solver *solver);
 
 /* Allocates scratch space (for _set and _forcing) */
@@ -93,8 +110,11 @@ typedef void (*ctxfree_t)(void *ctx);
 enum { diff_impossible = 10, diff_ambiguous, diff_unfinished };
 
 /* Externally callable function that allocates and frees a latin_solver */
-int latin_solver(digit *grid, int o, int maxdiff,
-		 int diff_simple, int diff_set_0, int diff_set_1,
+int latin_solver(digit *grid, int o
+#ifdef SEMI_LATIN
+	   , int depth, bool *force, bool *forbid
+#endif
+	   , int maxdiff, int diff_simple, int diff_set_0, int diff_set_1,
 		 int diff_forcing, int diff_recursive,
 		 usersolver_t const *usersolvers, void *ctx,
 		 ctxnew_t ctxnew, ctxfree_t ctxfree);
@@ -106,7 +126,14 @@ int latin_solver_main(struct latin_solver *solver, int maxdiff,
 		      usersolver_t const *usersolvers, void *ctx,
 		      ctxnew_t ctxnew, ctxfree_t ctxfree);
 
-void latin_solver_debug(unsigned char *cube, int o);
+#ifdef SEMI_LATIN
+void latin_solver_debug_force_forbid(int o, int depth, bool *force, bool *forbid);
+#endif
+void latin_solver_debug(unsigned char *cube, int o
+#ifdef SEMI_LATIN
+						  , int depth
+#endif
+);
 
 /* --- Generation and checking --- */
 

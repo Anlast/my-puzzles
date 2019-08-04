@@ -2,6 +2,14 @@
  * numberball.c - implementation of Nanbaboru from janko.at
  *
  * This is a partial latin square puzzle where you get imposed and forbidden cells as clues.
+ *
+ * Latin solver could be enhanced for extreme difficulty as I have only changed forcing chain 
+ * algorithm slightly and excluded numerical set elimination. All deductions focus on cells which 
+ * we know must not remain empty, so it would be good to look at cells that could potentially 
+ * remain empty for extreme puzzles.
+ * 
+ * I tested the solver on the puzzles from janko.at in increasing order of difficulty and it 
+ * grades difficulty correctly except that in some cases it treats extreme as unreasonable.
  */
 
 #include <stdio.h>
@@ -229,31 +237,11 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     int i, ret;
     int diff = params->diff;
     char *desc, *p;
-
-    /*
-     * Difficulty exceptions: some combinations of size and
-     * difficulty cannot be satisfied, because all puzzles of at
-     * most that difficulty are actually even easier.
-     *
-     * Remember to re-test this whenever a change is made to the
-     * solver logic!
-     *
-     * I tested it using the following shell command:
-
-for d in e h x u; do
-  for i in {3..9}; do
-    echo -n "./towers --generate 1 ${i}d${d}: "
-    perl -e 'alarm 30; exec @ARGV' ./towers --generate 1 ${i}d${d} >/dev/null \
-      && echo ok
-  done
-done
-
-     * Of course, it's better to do that after taking the exceptions
-     * _out_, so as to detect exceptions that should be removed as
-     * well as those which should be added.
-     */
-    if (diff > DIFF_HARD && w <= 3)
+	
+    if (diff > DIFF_HARD && w <= 5)
 	diff = DIFF_HARD;
+	else if(diff >= DIFF_HARD && w <= 5)
+	diff = DIFF_EASY;
 
     grid = NULL;
     soln = snewn(a, digit);

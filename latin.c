@@ -54,6 +54,7 @@ int latin_solver_assign_forbid(struct latin_solver *solver, int start, int step
 	
 	ret = 0;
 	if(count == depth)
+	{
 	for(i = 0; i < o; i++)
 	{
 	pos = start + i*step;
@@ -87,7 +88,12 @@ int latin_solver_assign_forbid(struct latin_solver *solver, int start, int step
 		
 		ret = 1;
 	}
-	} else if (count > depth) {
+	}
+	#ifdef STANDALONE_SOLVER
+		if(solver_show_working)
+			if(ret) printf("\n");
+	#endif
+	}else if (count > depth) {
 	#ifdef STANDALONE_SOLVER
 		if(solver_show_working)
 		{
@@ -103,9 +109,7 @@ int latin_solver_assign_forbid(struct latin_solver *solver, int start, int step
 	}
 		
 	
-#ifdef STANDALONE_SOLVER
-	if(ret) printf("\n");
-#endif
+
 	
 	return ret;
 }
@@ -144,6 +148,7 @@ int latin_solver_assign_force(struct latin_solver *solver, int start, int step
 	}
 	
 	if(o-count == depth)
+	{
 	for(i = 0; i < o; i++)
 	{
 		pos = start+i*step;
@@ -159,18 +164,23 @@ int latin_solver_assign_force(struct latin_solver *solver, int start, int step
                 va_start(ap, fmt);
                 vprintf(fmt, ap);
                 va_end(ap);
-				printf(":\n%*s  forcing some placement at", solver_recurse_depth*4, "");
+				printf(":\n%*s  imposing some placement at", solver_recurse_depth*4, "");
 				printf(" (%d,%d)", pos%o+1, pos/o+1);
 			}
 			else
 				printf(", (%d,%d)", pos%o+1, pos/o+1);
-#endif
 		}
+#endif
 			assert(!forbid[pos]);
 			
 			force[pos] = true;
 			ret = 1;
 		}
+	}
+	#ifdef STANDALONE_SOLVER
+		if(solver_show_working)
+			if(ret) printf("\n");
+	#endif
 	} else if(o-count<depth) {
 	#ifdef STANDALONE_SOLVER
 		if(solver_show_working)
@@ -185,10 +195,6 @@ int latin_solver_assign_force(struct latin_solver *solver, int start, int step
 	#endif
 		return -1;
 	}
-	
-#ifdef STANDALONE_SOLVER
-	if(ret) printf("\n");
-#endif
 	
 	return ret;
 }
@@ -339,23 +345,19 @@ int latin_solver_set(struct latin_solver *solver,
     char **names = solver->names;
 #endif
     int i, j, n, count;
-#ifdef SEMI_LATIN
-	int row_n;
-#endif
     unsigned char *grid = scratch->grid;
     unsigned char *rowidx = scratch->rowidx;
     unsigned char *colidx = scratch->colidx;
     unsigned char *set = scratch->set;
 #ifdef SEMI_LATIN
 	unsigned char *forceidx = scratch->forceidx;
-	bool *force = solver->force;
-	bool *forbid = solver->forbid;
+	bool *impose = solver->force;
 #endif
-
+	
 #ifdef SEMI_LATIN
 	/*
 	 * In the deduction routine we only want to count rows 
-	 * which we know _must_ have value.
+	 * which we know _must_ have some value.
 	 */
 	memset(forceidx, false, o);
 	for (i = 0; i < o; i++)
@@ -364,7 +366,7 @@ int latin_solver_set(struct latin_solver *solver,
 		int py = fpos / o;
 		int px = py / o;
 		py %= o;
-		if(force[py*o+px])
+		if(impose[py*o+px])
 			forceidx[i] = true;
 	}
 #endif
@@ -382,30 +384,21 @@ int latin_solver_set(struct latin_solver *solver,
         for (j = 0; j < o; j++)
             if (solver->cube[start+i*step1+j*step2])
                 first = j, count++;
-#if SEMI_LATIN
-	if(count == 0)
-		rowidx[i] = false;
-#else
-	if (count == 0)	
+
+	if (count == 0) 
+#if !defined SEMI_LATIN
 		return -1;
+#else
+		rowidx[i] = false;
 #endif
-
-    if (count == 1
+		
+    	if (count == 1
 #ifdef SEMI_LATIN
-		&& forceidx[i]
+			&& forceidx[i]
 #endif
-		)
-        rowidx[i] = colidx[first] = 
-	#ifdef SEMI_LATIN
-		forceidx[i] = /* if row is eliminated also eliminate forced label */
-	#endif
-		false; 
+		   )
+            rowidx[i] = colidx[first] = false;
     }
-
-#ifdef SEMI_LATIN
-	for(i = solver->depth; i < o; i++)
-		colidx[i] = false;
-#endif
 
     /*
      * Convert each of rowidx/colidx from a list of 0s and 1s to a
@@ -414,35 +407,25 @@ int latin_solver_set(struct latin_solver *solver,
     for (i = j = 0; i < o; i++)
         if (rowidx[i])
             rowidx[j++] = i;
-#ifdef SEMI_LATIN
-		else /* shift forceidx to match old rowidx's 1s */
-		{ 
-			for(int k = i; k < o-1; k++)
-				forceidx[k] = forceidx[k+1];
-		}
-#endif
-
-#ifdef SEMI_LATIN
-	row_n = j;
-#else
     n = j;
-#endif
     for (i = j = 0; i < o; i++)
         if (colidx[i])
             colidx[j++] = i;
-#ifdef SEMI_LATIN
-	n = j;
-#endif
-
 #if !defined SEMI_LATIN
     assert(n == j);
+#else
+	int n2 = j;
 #endif
 
     /*
      * And create the smaller matrix.
      */
-    for (i = 0; i < row_n; i++)
+    for (i = 0; i < n; i++)
+#if !defined SEMI_LATIN
         for (j = 0; j < n; j++)
+#else
+		for (j = 0; j < n2; j++)
+#endif
             grid[i*o+j] = solver->cube[start+rowidx[i]*step1+colidx[j]*step2];
 
     /*
@@ -460,25 +443,24 @@ int latin_solver_set(struct latin_solver *solver,
          * We have a candidate set. If its size is <=1 or >=n-1
          * then we move on immediately.
          */
-#ifdef SEMI_LATIN
-		if (count >= 1 && count < n-1) { /* This is an important change. Otherwise the solver wouldn't work on puzzle nanbaboru #19 at janko.at.
-										  * I hope this doesn't cause any bugs. */
-#else
         if (count > 1 && count < n-1) {
-#endif
             /*
              * The number of rows we need is n-count. See if we can
              * find that many rows which each have a zero in all
              * the positions listed in `set'.
              */
             int rows = 0;
-            for (i = 0; i < row_n; i++) {
+            for (i = 0; i < n; i++) {
                 bool ok = true;
-#ifdef SEMI_LATIN
-				if(!forceidx[i])
+			#ifdef SEMI_LATIN
+				if(!forceidx[rowidx[i]]) /* can't make a serious deduction if the cell could be empty */
 					continue;
-#endif
+			#endif
+			#if !defined SEMI_LATIN
                 for (j = 0; j < n; j++)
+			#else 
+				for (j = 0; j < n2; j++)
+			#endif
                     if (set[j] && grid[i*o+j]) {
                         ok = false;
                         break;
@@ -525,19 +507,26 @@ int latin_solver_set(struct latin_solver *solver,
                  * rowidx/colidx in order to work out which actual
                  * positions in the cube to meddle with.
                  */
-                for (i = 0; i < row_n; i++) {
+                for (i = 0; i < n; i++) {
                     bool ok = true;
+				#if !defined SEMI_LATIN
                     for (j = 0; j < n; j++)
+				#else
+					if(!forceidx[rowidx[i]])
+						ok = false;
+					else 
+					for (j = 0; j < n2; j++)
+				#endif
                         if (set[j] && grid[i*o+j]) {
                             ok = false;
                             break;
                         }
-#ifdef SEMI_LATIN
-					if(ok && !forceidx[i])
-						ok = false;
-#endif
                     if (!ok) {
+					#if !defined SEMI_LATIN
                         for (j = 0; j < n; j++)
+					#else 
+						for (j = 0; j < n2; j++)
+					#endif
                             if (!set[j] && grid[i*o+j]) {
                                 int fpos = (start+rowidx[i]*step1+
                                             colidx[j]*step2);
@@ -729,11 +718,6 @@ int latin_solver_forcing(struct latin_solver *solver,
                             xt = neighbours[i] % o;
                             yt = neighbours[i] / o;
 
-						#ifdef SEMI_LATIN
-							/* Only work with cells we know _must_ have a value */
-							if(!force[yt*o+xt])
-								continue;
-						#endif
                             /*
                              * We need this square to not be
                              * already visited, and to include
@@ -759,7 +743,11 @@ int latin_solver_forcing(struct latin_solver *solver,
                             for (cc = tt = 0, nn = 1; nn <= o; nn++)
                                 if (cube(xt, yt, nn))
                                     cc++, tt += nn;
-                            if (cc == 2) {
+                            if (cc == 2
+#ifdef SEMI_LATIN
+								&& force[yt*o+xt]
+#endif
+                            ) {
                                 bfsqueue[tail++] = yt*o+xt;
 #ifdef STANDALONE_SOLVER
                                 bfsprev[yt*o+xt] = yy*o+xx;
@@ -1045,9 +1033,15 @@ int latin_solver_diff_set(struct latin_solver *solver,
                           struct latin_solver_scratch *scratch,
                           bool extreme)
 {
-    int x, y, n, ret, o = solver->o;
+    int x, y, ret, o = solver->o;
+#if !defined SEMI_LATIN
+	int n;
+#endif
+	
+#if !defined SEMI_LATIN
 #ifdef STANDALONE_SOLVER
     char **names = solver->names;
+#endif
 #endif
 
     if (!extreme) {
@@ -1319,7 +1313,6 @@ static int latin_solver_top(struct latin_solver *solver, int maxdiff,
 #ifdef SEMI_LATIN
 		latin_solver_debug_force_forbid(solver->o, solver->depth, solver->force, solver->forbid);
 #endif
-
         latin_solver_debug(solver->cube, solver->o
 #ifdef SEMI_LATIN
 							  , solver->depth
@@ -1512,13 +1505,17 @@ int latin_solver(digit *grid, int o
 #ifdef SEMI_LATIN
 void latin_solver_debug_force_forbid(int o, int depth, bool *force, bool *forbid)
 {
-	int x, y;
-	for(y = 0; y < o; y++)
-	{
-	for(x = 0; x < o; x++)
-		printf("%*c ", depth, forbid[y*o+x] ? 'X' : force[y*o+x] ? 'O' : '-'); 
-	printf("\n");
+#ifdef STANDALONE_SOLVER
+	if (solver_show_working > 1) {
+		int x, y;
+		for(y = 0; y < o; y++)
+		{
+		for(x = 0; x < o; x++)
+			printf("%*c ", depth, forbid[y*o+x] ? 'X' : force[y*o+x] ? 'O' : '-'); 
+		printf("\n");
+		}
 	}
+#endif
 }
 #endif
 
@@ -1579,7 +1576,6 @@ void latin_debug(digit *sq, int o)
 #endif
 }
 
-#if 0
 /* --------------------------------------------------------
  * Generation.
  */
@@ -1876,6 +1872,5 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-#endif
 #endif
 /* vim: set shiftwidth=4 tabstop=8: */
